@@ -21,6 +21,8 @@ const int motor[] = {5, 6, 9, 10};
 
 const int runToggleButton = 2;
 
+const int led = 13;
+
 /*** Library object initializations. ***/
 Servo sweeper;
 NewPing firstSonar(TRIGGER_PIN_FIRST, ECHO_PIN_FIRST, MAX_DISTANCE_FIRST);
@@ -29,15 +31,23 @@ NewPing secondSonar(TRIGGER_PIN_SECOND, ECHO_PIN_SECOND, MAX_DISTANCE_SECOND);
 
 /*** Settings ***/
 
-const float motorPWMcoef[] = {1, 0.7, 1, 0.7};
-int servoZero = 10; //degrees at which the servo does not damage itself
+const float motorPWMcoef[] = {1, 1, 1, 1};
+int servoZero = 3; //degrees at which the servo does not damage itself
+unsigned long startDelay = 5500; //ms
 
 
 /*** Other variables. ***/
-boolean haltMotors = true; 
+int systemState = 0; 
+#define STOP 0
+#define DELAYSTART 1
+#define GO 2
+
+boolean scanDirection = 1;
 
 unsigned long interruptTime; //for debouncing drive/stall mode button
 unsigned long lastInterruptTime = 0; //for debouncing drive/stall mode button
+
+unsigned long startSignal;
 
 
 int distances[40];
@@ -60,19 +70,45 @@ void setup() {
     Serial.begin(9600);
     DPL("Start");
   #endif
+
+  sweeper.write(servoZero);
+  delay(1000);
 }
 
 void loop() {
 
-  for (i=0; i<20; i++) {
-    if (!haltMotors) {
-      sweeper.write(servoZero + i*9);
-    }
-    delay(200);
-    distances[i] = firstSonar.ping_cm();
-    distances[20 + i] = secondSonar.ping_cm();
-    delay(20);
+  if (systemState == DELAYSTART && millis() <= startSignal + startDelay) {
+    systemState = GO;
+    digitalWrite(led, LOW);
   }
+
+  if (scanDirection == 1) {
+
+    for (i=0; i<20; i++) {
+      if (systemState == GO) {
+        sweeper.write(servoZero + i*9);
+      }
+      delay(200);
+      distances[i] = firstSonar.ping_cm();
+      distances[20 + i] = secondSonar.ping_cm();
+      delay(20);
+    }
+
+  }
+  else {
+
+    for (i=19; i>=0; i--) {
+      if (systemState == GO) {
+        sweeper.write(servoZero + i*9);
+      }
+      delay(200);
+      distances[i] = firstSonar.ping_cm();
+      distances[20 + i] = secondSonar.ping_cm();
+      delay(20);
+    }
+
+  }
+  scanDirection = !scanDirection;
 
   /*Find largest distances in about 120 deg sectors close to last front and back.*/
   lastFrontDirection = frontDirection;
@@ -98,48 +134,62 @@ void loop() {
 
   /*Run motors if allowed.*/
 
-  if (!haltMotors) {
+  if (systemState == GO) {
 
     int sector = int(frontDirection/90);
     switch (sector) {
       
       case 0:
-        analogWrite(motor[0], cos(frontDirection*9));
-        analogWrite(motor[1], cos(90 - frontDirection*9));
+        analogWrite(motor[0], int(cos((frontDirection*9)*motorPWMcoef[0])));
+        analogWrite(motor[1], int(cos((90 - frontDirection*9)*motorPWMcoef[1])));
         analogWrite(motor[2], 0);
         analogWrite(motor[3], 0);
         break;
       
       case 1:
         analogWrite(motor[0], 0);
-        analogWrite(motor[1], cos(frontDirection*9 - 90));
-        analogWrite(motor[2], cos(180 - frontDirection*9));
+        analogWrite(motor[1], int(cos((frontDirection*9 - 90)*motorPWMcoef[1])));
+        analogWrite(motor[2], int(cos((180 - frontDirection*9)*motorPWMcoef[2])));
         analogWrite(motor[3], 0);
         break;
   
       case 2:
         analogWrite(motor[0], 0);
         analogWrite(motor[1], 0);
-        analogWrite(motor[2], cos(frontDirection*9 - 180));
-        analogWrite(motor[3], cos(270 - frontDirection*9));
+        analogWrite(motor[2], int(cos((frontDirection*9 - 180)*motorPWMcoef[2])));
+        analogWrite(motor[3], int(cos((270 - frontDirection*9)*motorPWMcoef[3])));
         break;
       
       case 3:
-        analogWrite(motor[0], cos(360 - frontDirection*9));
+        analogWrite(motor[0], int(cos((360 - frontDirection*9)*motorPWMcoef[0])));
         analogWrite(motor[1], 0);
         analogWrite(motor[3], 0);
-        analogWrite(motor[4], cos(frontDirection*9 - 270));
+        analogWrite(motor[4], int(cos((frontDirection*9 - 270)*motorPWMcoef[3])));
         break;
    
     }
   }
+
+
+  for (i=0; i<40; i++) {
+    DP(distances[i]);
+    DP(" ");
+  }
+  DP("Front sector: ");
+  DPL(frontDirection);
+  
 }
 
 
 void toggleRunning() {
   interruptTime = millis();
   if (interruptTime - lastInterruptTime > 200) {
-    haltMotors = !haltMotors;
+    systemState++;
+    if (systemState == 3) systemState = 0;
+    if (systemState == DELAYSTART) {
+      startSignal = millis();
+      digitalWrite(led, HIGH);
+    }
   }
   lastInterruptTime = interruptTime;
 }
