@@ -1,4 +1,13 @@
-//At servo start (0) position, first sensor direction is 0 degrees. This should be opposite of motor 0 push direction.
+/*
+ * At servo start (0) position, first sensor direction is 0 degrees. 
+ * This should be opposite of motor 0 push direction.
+ * 
+ * Choice between ultrasonic sensors or VL53L0X lidar can be made by 
+ * commenting line 15.
+ * 
+ * Pin connections are in files layoutUltasonic.h or layoutVL53L0X.h respectively.
+*/
+
 
 #define DEBUG /*Comment this line out in production then all DP Serial instructions are ignored.*/
 #include "DebugUtils.h"/*Leave this in, otherwise you get errors.*/
