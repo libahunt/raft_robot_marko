@@ -1,6 +1,5 @@
 /*Include this file if using 
- * ultrasound distance sensors and 
- * Atmega328 controller. */
+ * ultrasound distance sensors. */
 
 /*** Pin connections ***/
 #define TRIGGER_PIN_FIRST  3
@@ -15,7 +14,9 @@ const int radarServo = 11;
 
 const int motor[] = {5, 6, 9, 10};
 
-const int runToggleButton = 2;
+const int runToggleButton = 1;
+
+const int motorCoefPot[] = {A0, A1, A2, A3};
 
 
 /*** Library object initializations. ***/

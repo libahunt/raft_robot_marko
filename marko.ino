@@ -17,10 +17,13 @@
 
 #include <Servo.h>
 
+#include "LPD8806.h"
+#include "SPI.h"
+
 #ifdef PING
 
   #include <NewPing.h>
-  #include "AT328andPing.h"
+  #include "layoutUltrasonic.h"
   
 #else
 
@@ -34,34 +37,43 @@
 
 Servo sweeper;
 
+LPD8806 lights = LPD8806(10, rgbData, rgbClock);
+
 /*** Settings ***/
 
-const float motorPWMcoef[] = {1, 0.7, 1, 0.7};
-int servoZero = 10; //degrees at which the servo does not damage itself
+const int fullPWM = 255;
+const int servoZero = 0; //degrees at which the servo does not damage itself
+const int halfSector = 7; //Half of the sector width (out of 40 directions) 
+//to use when deciding new frontDirection. 7*2+1=15 directions makes it 135 degrees.
 
 
 /*** Other variables. ***/
 boolean haltMotors = true; 
+int PWMs[4];
+float motorPWMcoef[] = {1, 1, 1, 1};
 
 unsigned long interruptTime; //for debouncing drive/stall mode button
 unsigned long lastInterruptTime = 0; //for debouncing drive/stall mode button
 
 int distances[40];//40 directions to measure makes each one 9 degrees wide
-int frontDirection = 0;
+int frontDirection = 0; //direction sector (0-39)
 int lastFrontDirection = 0;
-
-int i;
+bool scanDirection = 1;
 
 
 void setup() {
   
   sweeper.attach(radarServo);
+
+  sweeper.write(servoZero);
+  delay(500);
   
   /*Motors.*/
-  for (i=0; i<4; i++) {
+  for (int i=0; i<4; i++) {
     pinMode(motor[i], OUTPUT);
   }
 
+  pinMode(runToggleButton, INPUT_PULLUP);
   attachInterrupt(digitalPinToInterrupt(runToggleButton), toggleRunning, LOW);
 
   #ifdef DEBUG
@@ -72,61 +84,50 @@ void setup() {
   #ifndef PING
     lidarInit();
   #endif
+
+  lights.begin();
+  lights.show();
+
+  readMotorCoefPots();
   
 }
 
 void loop() {
 
   //Move servo to 20 different positions and take 2 opposite direction measurements in each.
-  for (i=0; i<20; i++) {
-    sweeper.write(servoZero + i*9);
-    delay(200);
-
-    #ifdef PING
-    
-      distances[i] = firstSonar.ping_cm();
-      delay(50);
-      distances[20 + i] = secondSonar.ping_cm();
-      
-    #else
-  
-      int dist = sensor1.readRangeSingleMillimeters();
-      if (!sensor1.timeoutOccurred()) {
-        distances[i] = dist / 10;
-      } else {
-        distances[i] = 0;
-        DPL("Lidar 1 failure.");
-      }
+  if (scanDirection == 1) {
+    for (int i=0; i<20; i++) {
+      sweeper.write(servoZero + i*9);
       delay(100);
-      dist = sensor2.readRangeSingleMillimeters();
-      if (sensor2.timeoutOccurred()) {
-        distances[20 + i] = dist / 10;
-      } else {
-        distances[20 + i] = 0;
-        DPL("Lidar 2 failure.");
-      }
-      
-    #endif
-
-    delay(20);
-
-    DPL("Measurements:");
-    for (i=0; i<40; i++) {
-      DP(i);
-      DP("\t");
+      takeAMeasurement(i);
     }
-    DPL();
-    for (i=0; i<40; i++) {
-      DP(distances[i]);
-      DP("\t");
+  }
+  else {
+    for (int i=19; i>=0; i--) {
+      sweeper.write(servoZero + i*9);
+      delay(100);
+      takeAMeasurement(i);
     }
-    DPL();
   }
 
-  /*Find largest distances in about 120 deg sectors close to last front and back.*/
+  scanDirection = !scanDirection;
+
+  DPL("Measurements:");
+  for (int i=0; i<40; i++) {
+    DP(i);
+    DP("\t");
+  }
+  DPL();
+  for (int i=0; i<40; i++) {
+    DP(distances[i]);
+    DP("\t");
+  }
+  DPL();
+
+  /*Find largest distances in set sectorwidth close to last front and back.*/
   lastFrontDirection = frontDirection;
   int maxDistance = distances[lastFrontDirection];
-  for (i=1; i<7; i++) {
+  for (int i=1; i<halfSector; i++) {
     byte index1 = lastFrontDirection - i;
     if (index1 < 0) {
       index1 = 40 + index1;
@@ -145,48 +146,17 @@ void loop() {
     }
   }
 
-  DP("Front direction is: ");
-  DPL(frontDirection);
+  DP("Front direction in degrees is: ");
+  DPL(frontDirection*9);
 
+  showDirectionLights();
   
   /*Run motors if allowed.*/
   if (!haltMotors) {
-    int sector = int(frontDirection/10);//divide possible 40 directions into 4 (90 degree) sectors
-    switch (sector) {
-      case 0: 
-        analogWrite(motor[0], cos(frontDirection*9));
-        analogWrite(motor[1], cos(90 - frontDirection*9));
-        analogWrite(motor[2], 0);
-        analogWrite(motor[3], 0);
-        break;
-      
-      case 1:
-        analogWrite(motor[0], 0);
-        analogWrite(motor[1], cos(frontDirection*9 - 90));
-        analogWrite(motor[2], cos(180 - frontDirection*9));
-        analogWrite(motor[3], 0);
-        break;
-  
-      case 2:
-        analogWrite(motor[0], 0);
-        analogWrite(motor[1], 0);
-        analogWrite(motor[2], cos(frontDirection*9 - 180));
-        analogWrite(motor[3], cos(270 - frontDirection*9));
-        break;
-      
-      case 3:
-        analogWrite(motor[0], cos(360 - frontDirection*9));
-        analogWrite(motor[1], 0);
-        analogWrite(motor[3], 0);
-        analogWrite(motor[4], cos(frontDirection*9 - 270));
-        break;
-    }
+    runMotors(frontDirection);
   }
-  else {//stop motors
-    analogWrite(motor[0], 0);
-    analogWrite(motor[1], 0);
-    analogWrite(motor[2], 0);
-    analogWrite(motor[3], 0);
+  else {
+    stopMotors();
   }
 }
 
@@ -197,5 +167,47 @@ void toggleRunning() {
     haltMotors = !haltMotors;
   }
   lastInterruptTime = interruptTime;
+}
+
+void takeAMeasurement(int i) {
+  
+  #ifdef PING
+    
+      distances[i] = firstSonar.ping_cm();
+      distances[20 + i] = secondSonar.ping_cm();
+      
+    #else
+  
+      int dist = sensor1.readRangeSingleMillimeters();
+      if (!sensor1.timeoutOccurred()) {
+        distances[i] = dist / 10;
+      } else {
+        distances[i] = 0;
+        DPL("Lidar 1 failure.");
+      }
+      dist = sensor2.readRangeSingleMillimeters();
+      if (!sensor2.timeoutOccurred()) {
+        distances[20 + i] = dist / 10;
+      } else {
+        distances[20 + i] = 0;
+        DPL("Lidar 2 failure.");
+      }
+      
+    #endif
+}
+
+
+void readMotorCoefPots() {
+  for (int i=0; i<4; i++) {
+    motorPWMcoef[i] = map( analogRead(motorCoefPot[i]), 0, 1023, 0.5, 1.0 );
+    DP("motorPWMcoef[");
+    DP(i);
+    DP("] = ");
+    DP(motorPWMcoef[i]);
+    DP("\t\t");
+    delay(50);
+  }
+  DPL("");
+  
 }
 

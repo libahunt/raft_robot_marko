@@ -1,20 +1,24 @@
 /*Include this file if using 
- * VL53L0X micro LIDAR sensors and
- * ... controller. */
+ * VL53L0X micro LIDAR sensors. */
 
 /*** Pin connections ***/
 
-const int radarServo = 11;
+const int radarServo = 4;
 
 const int motor[] = {5, 6, 9, 10};
 
 const int runToggleButton = 2;
 
-byte sensor1pin = 3;
-byte sensor2pin = 2;
+byte sensor1pin = 8;
+byte sensor2pin = 7;
 byte sensor1addr = 22;
 byte sensor2addr = 23;
 unsigned int sensorTimeout = 500;
+
+const int motorCoefPot[] = {A0, A1, A2, A3};
+
+const int rgbData = 1;
+const int rgbClock = 3;
 
 
 /*** Library object initializations. ***/
@@ -28,12 +32,13 @@ VL53L0X sensor2;
 void lidarInit() {
   
   pinMode(sensor1pin, OUTPUT);
-  digitalWrite(sensor1pin, LOW);
   pinMode(sensor2pin, OUTPUT);
+  digitalWrite(sensor1pin, LOW);
   digitalWrite(sensor2pin, LOW);
 
   delay(500);
   Wire.begin();
+  delay(500);
 
   pinMode(sensor1pin, INPUT);
   delay(150);
@@ -63,7 +68,7 @@ void lidarInit() {
       DPL("Sensor2 OK");
     }
     else {
-      DPL("Sensor1 not responding.");
+      DPL("Sensor2 not responding.");
     }
   #endif
 

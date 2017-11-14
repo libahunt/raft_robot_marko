@@ -7,11 +7,16 @@
  */
  
 #ifdef DEBUG
+
   #define DP(str) \
+if (Serial) {\
     Serial.print(str); \
-    Serial.print(" ");
+    Serial.print(" "); \
+}
   #define DPL(str) \
-    Serial.println(str);
+if (Serial) {\
+    Serial.println(str);\
+}
 #else
   #define DP(str)
   #define DPL(str)
